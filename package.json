@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "noble": "git://github.com/lzever/noble.git",
+    "xpc-connection": "git://github.com/taoyuan/node-xpc-connection.git"
+  }
+}
