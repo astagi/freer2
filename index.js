@@ -107,16 +107,19 @@ let connectTheDroid = (address) => {
 
 let writePacket = (characteristic, buff, waitForNotification=false, timeout=0) => {
     return new Promise(function(resolve, reject) {
+
         let dataRead = [];
 
         let checkIsAValidRequest = (dataRead) => {
             if (dataRead[5] != 0x00) {
+                characteristic.removeListener('data', listenerForRead);
                 reject(dataRead[5]);
             }
         }
 
         let finish = () => {
             setTimeout(() => {
+                characteristic.removeListener('data', listenerForRead);
                 resolve(true);
             }, timeout);
         }
@@ -137,7 +140,6 @@ let writePacket = (characteristic, buff, waitForNotification=false, timeout=0) =
                 dataRead = [];
             }
         };
-        characteristic.removeAllListeners('data');
         characteristic.on('data', listenerForRead);
         characteristic.write(Buffer.from(buff));
     });
