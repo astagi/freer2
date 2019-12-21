@@ -47,7 +47,7 @@ let buildPacket = (init, payload=[]) => {
 
     packet.push(...packetEncoded);
     packet.push(EOP);
-    seq++;
+    seq = (seq + 1) % 140;
 
     return packet;
 }
@@ -147,6 +147,19 @@ let writePacket = (characteristic, buff, waitForNotification=false, timeout=0) =
 
 let droidAddress = 'd7:1b:52:17:7b:d6';
 
+const MSG_ROTATE = [0x0A,0x17,0x0F];
+const MSG_ANIMATION = [0x0A,0x17,0x05];
+
+let convertDegreeToHex = (degree) => {
+    var view = new DataView(new ArrayBuffer(4));
+    view.setFloat32(0, degree);
+    return Array
+        .apply(null, { length: 4 })
+        .map((_, i) => view.getUint8(i))
+
+}
+
+
 connectTheDroid(droidAddress).then(characteristic => {
     characteristic.subscribe(async(error) => {
         if (error) {
@@ -154,8 +167,36 @@ connectTheDroid(droidAddress).then(characteristic => {
         } else {
             console.log("Wait for init!");
             await writePacket(characteristic, buildPacket(MSG_INIT), true, 5000);
-            console.log("Turn off the droid!");
-            await writePacket(characteristic, buildPacket(MSG_OFF), true);
+
+            console.log('Rotate the droid!');
+            for (let degrees = -160 ; degrees <= 180 ; degrees++) {
+                await writePacket(
+                    characteristic,
+                    buildPacket(MSG_ROTATE, convertDegreeToHex(degrees)),
+                    false,
+                );
+            }
+
+            console.log('Show me what you can do!');
+            await writePacket(
+                characteristic,
+                buildPacket(MSG_ANIMATION, [0x00, 7]),
+                true
+            );
+
+            console.log('Wow! Anything else?');
+            await writePacket(
+                characteristic,
+                buildPacket(MSG_ANIMATION, [0x00, 13]),
+                true
+            );
+
+            console.log("Awesome! Turn off the droid now!");
+            await writePacket(
+                characteristic,
+                buildPacket(MSG_OFF),
+                true
+            );
             console.log("Finish!");
         }
     });
