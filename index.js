@@ -1,3 +1,18 @@
+const CONNECT_SERVICE = "00020001574f4f2053706865726f2121";
+const CONNECT_CHAR = "00020005574f4f2053706865726f2121";
+
+const MAIN_SERVICE = "00010001574f4f2053706865726f2121";
+const MAIN_CHAR = "00010002574f4f2053706865726f2121";
+
+const MSG_CONNECTION = [0x75,0x73,0x65,0x74,0x68,0x65,0x66,0x6F,0x72,0x63,0x65,0x2E,0x2E,0x2E,0x62,0x61,0x6E,0x64];
+const MSG_INIT = [0x0A,0x13,0x0D];
+const MSG_OFF = [0x0A,0x13,0x01];
+const MSG_ROTATE = [0x0A,0x17,0x0F];
+const MSG_ANIMATION = [0x0A,0x17,0x05];
+const MSG_CARRIAGE = [0x0A, 0x17, 0x0D];
+
+// ----
+
 const ESC = 0xAB;
 const SOP = 0x8D;
 const EOP = 0xD8;
@@ -53,22 +68,8 @@ let buildPacket = (init, payload=[]) => {
 }
 
 
-console.log(buildPacket([0x0A,0x13,0x0D]))
-console.log(buildPacket([0x0A,0x13,0x01]))
-
 // ----
 
-const CONNECT_SERVICE = "00020001574f4f2053706865726f2121";
-const CONNECT_CHAR = "00020005574f4f2053706865726f2121";
-
-const SPECIAL_SERVICE = "00010001574f4f2053706865726f2121";
-const SPECIAL_CHAR = "00010002574f4f2053706865726f2121";
-
-const MSG_CONNECTION = [0x75,0x73,0x65,0x74,0x68,0x65,0x66,0x6F,0x72,0x63,0x65,0x2E,0x2E,0x2E,0x62,0x61,0x6E,0x64];
-const MSG_INIT = [0x0A,0x13,0x0D];
-const MSG_OFF = [0x0A,0x13,0x01];
-
-// ----
 
 const noble = require('noble');
 
@@ -81,8 +82,8 @@ let connectTheDroid = (address) => {
                     peripheral.discoverServices([CONNECT_SERVICE], (error, services) => {
                         services[0].discoverCharacteristics([CONNECT_CHAR], (error, characteristics) => {
                             characteristics[0].write(Buffer.from(MSG_CONNECTION), true, (error) => {
-                                peripheral.discoverServices([SPECIAL_SERVICE], (error, services) => {
-                                    services[0].discoverCharacteristics([SPECIAL_CHAR], (error, characteristics) => {
+                                peripheral.discoverServices([MAIN_SERVICE], (error, services) => {
+                                    services[0].discoverCharacteristics([MAIN_CHAR], (error, characteristics) => {
                                         resolve(characteristics[0]);
                                     });
                                 });
@@ -147,11 +148,6 @@ let writePacket = (characteristic, buff, waitForNotification=false, timeout=0) =
 
 // ----
 
-let droidAddress = 'd7:1b:52:17:7b:d6';
-
-const MSG_ROTATE = [0x0A,0x17,0x0F];
-const MSG_ANIMATION = [0x0A,0x17,0x05];
-
 let convertDegreeToHex = (degree) => {
     var view = new DataView(new ArrayBuffer(4));
     view.setFloat32(0, degree);
@@ -160,6 +156,9 @@ let convertDegreeToHex = (degree) => {
         .map((_, i) => view.getUint8(i))
 
 }
+
+
+let droidAddress = 'd7:1b:52:17:7b:d6';
 
 
 connectTheDroid(droidAddress).then(characteristic => {
@@ -171,7 +170,7 @@ connectTheDroid(droidAddress).then(characteristic => {
             await writePacket(characteristic, buildPacket(MSG_INIT), true, 5000);
 
             console.log('Rotate the droid!');
-            for (let degrees = -160 ; degrees <= 180 ; degrees++) {
+            for (let degrees = -160 ; degrees <= 180 ; degrees+=5) {
                 await writePacket(
                     characteristic,
                     buildPacket(MSG_ROTATE, convertDegreeToHex(degrees)),
@@ -191,6 +190,22 @@ connectTheDroid(droidAddress).then(characteristic => {
                 characteristic,
                 buildPacket(MSG_ANIMATION, [0x00, 13]),
                 true
+            );
+
+            console.log('Tripod transformation');
+            await writePacket(
+                characteristic,
+                buildPacket(MSG_CARRIAGE, [0x01]),
+                false,
+                2000
+            );
+
+            console.log('Bipod transformation');
+            await writePacket(
+                characteristic,
+                buildPacket(MSG_CARRIAGE, [0x01]),
+                false,
+                2000
             );
 
             console.log("Awesome! Turn off the droid now!");
