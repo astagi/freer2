@@ -1,3 +1,5 @@
+const noble = require('noble');
+
 const CONNECT_SERVICE = "00020001574f4f2053706865726f2121";
 const CONNECT_CHAR = "00020005574f4f2053706865726f2121";
 
@@ -10,8 +12,6 @@ const MSG_OFF = [0x0A,0x13,0x01];
 const MSG_ROTATE = [0x0A,0x17,0x0F];
 const MSG_ANIMATION = [0x0A,0x17,0x05];
 const MSG_CARRIAGE = [0x0A, 0x17, 0x0D];
-
-// ----
 
 const ESC = 0xAB;
 const SOP = 0x8D;
@@ -70,8 +70,6 @@ let buildPacket = (init, payload=[]) => {
 
 // ----
 
-
-const noble = require('noble');
 
 let connectTheDroid = (address) => {
     return new Promise((resolve, reject) => {
@@ -154,9 +152,10 @@ let convertDegreeToHex = (degree) => {
     return Array
         .apply(null, { length: 4 })
         .map((_, i) => view.getUint8(i))
-
 }
 
+
+// ---- MAIN FUNCTION
 
 let droidAddress = 'd7:1b:52:17:7b:d6';
 
