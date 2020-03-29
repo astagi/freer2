@@ -24,51 +24,50 @@ const ESC_ESC = 0x23;
 const ESC_SOP = 0x05;
 const ESC_EOP = 0x50;
 
-const MSG_NOT = [0x0A, 0x18, 0x00];
-//const MSG_NOT = [0x0A, 0x13, 0x04];
+const MSG_ACCELEROMETER = [0x0A, 0x18, 0x00];
 
 
 let seq = 0;
 
 
 let calculateChk = (buff) => {
-    let ret = 0x00;
-    for (let i = 0; i < buff.length; i++) {
-        ret += buff[i];
-    }
-    ret = ret & 255;
-    return (ret ^ 255);
+  let ret = 0x00;
+  for (let i = 0; i < buff.length; i++) {
+    ret += buff[i];
+  }
+  ret = ret & 255;
+  return (ret ^ 255);
 }
 
 
 let buildPacket = (init, payload = []) => {
-    let packet = [SOP];
-    let body = [];
-    let packetEncoded = [];
+  let packet = [SOP];
+  let body = [];
+  let packetEncoded = [];
 
-    body.push(...init);
-    body.push(seq);
-    body.push(...payload);
+  body.push(...init);
+  body.push(seq);
+  body.push(...payload);
 
-    body.push(calculateChk(body));
+  body.push(calculateChk(body));
 
-    for (let i = 0; i < body.length; i++) {
-        if (body[i] == ESC) {
-            packetEncoded.push(...[ESC, ESC_ESC]);
-        } else if (body[i] == SOP) {
-            packetEncoded.push(...[ESC, ESC_SOP]);
-        } else if (body[i] == EOP) {
-            packetEncoded.push(...[ESC, ESC_EOP]);
-        } else {
-            packetEncoded.push(body[i])
-        }
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] == ESC) {
+      packetEncoded.push(...[ESC, ESC_ESC]);
+    } else if (body[i] == SOP) {
+      packetEncoded.push(...[ESC, ESC_SOP]);
+    } else if (body[i] == EOP) {
+      packetEncoded.push(...[ESC, ESC_EOP]);
+    } else {
+      packetEncoded.push(body[i])
     }
+  }
 
-    packet.push(...packetEncoded);
-    packet.push(EOP);
-    seq = (seq + 1) % 140;
+  packet.push(...packetEncoded);
+  packet.push(EOP);
+  seq = (seq + 1) % 140;
 
-    return packet;
+  return packet;
 }
 
 
@@ -76,142 +75,197 @@ let buildPacket = (init, payload = []) => {
 
 
 let connectTheDroid = (address) => {
-    return new Promise((resolve, reject) => {
-        noble.on('discover', (peripheral) => {
-            if (peripheral.address === address) {
-                console.log(peripheral)
-                noble.stopScanning();
-                peripheral.connect((e) => {
-                    peripheral.discoverServices([CONNECT_SERVICE], (error, services) => {
-                        services[0].discoverCharacteristics([HANDLE_CHAR], (error, characteristics) => {
-                            characteristics[0].notify(true);
-                            characteristics[0].subscribe(async (error) => {
+  return new Promise((resolve, reject) => {
+    noble.on('discover', (peripheral) => {
+      if (peripheral.address === address) {
+        //console.log(peripheral)
+        noble.stopScanning();
+        peripheral.connect((e) => {
+          peripheral.discoverServices([CONNECT_SERVICE], (error, services) => {
+            services[0].discoverCharacteristics([HANDLE_CHAR], (error, characteristics) => {
+              characteristics[0].notify(true);
+              characteristics[0].subscribe(async (error) => {
 
-                            });
-                            services[0].discoverCharacteristics([CONNECT_CHAR], (error, characteristics) => {
-                                characteristics[0].write(Buffer.from(MSG_CONNECTION), true, (error) => {
-                                    peripheral.discoverServices([MAIN_SERVICE], (error, services) => {
-                                        services[0].discoverCharacteristics([MAIN_CHAR], (error, characteristics) => {
-
-                                            // characteristics[0].on('data', (data, isNotification) => {
-                                            //     console.log('STATE');
-                                            //     console.log(isNotification);
-                                            //     console.log('DATA');
-                                            //     console.log(data);
-                                            // });
-                                            resolve(characteristics[0]);
-                                        });
-                                    });
-                                });
-                            });
-                        });
-
+              });
+              services[0].discoverCharacteristics([CONNECT_CHAR], (error, characteristics) => {
+                characteristics[0].write(Buffer.from(MSG_CONNECTION), true, (error) => {
+                  peripheral.discoverServices([MAIN_SERVICE], (error, services) => {
+                    services[0].discoverCharacteristics([MAIN_CHAR], (error, characteristics) => {
+                      resolve(characteristics[0]);
                     });
+                  });
                 });
-            }
-        });
+              });
+            });
 
-        noble.on('stateChange', (state) => {
-            if (state === 'poweredOn') {
-                noble.startScanning();
-            } else {
-                noble.stopScanning();
-            }
+          });
         });
+      }
     });
+
+    noble.on('stateChange', (state) => {
+      if (state === 'poweredOn') {
+        noble.startScanning();
+      } else {
+        noble.stopScanning();
+      }
+    });
+  });
+}
+
+
+// ----
+
+let enableAccelerometerInspection = (characteristic, callback) => {
+  let dataRead = [];
+  let dataToCheck = [];
+  let eopPosition = -1;
+  characteristic.write(Buffer.from(buildPacket(MSG_ACCELEROMETER, [0x00, 0x96, 0x00, 0x00, 0x07, 0xe0, 0x78])));
+  characteristic.on('data', (data) => {
+    dataRead.push(...data);
+    eopPosition = dataRead.indexOf(EOP);
+    dataToCheck = dataRead.slice(0);
+    if (eopPosition !== dataRead.length - 1) {
+      dataRead = dataRead.slice(eopPosition + 1);
+    } else {
+      dataRead = [];
+    }
+    if (eopPosition !== -1) {
+      if (dataToCheck.slice(0, 5).every((v) => [0x8D, 0x00, 0x18, 0x02, 0xFF].indexOf(v) >= 0)) {
+        // Decode packet
+        let packetDecoded = [];
+        for (let i = 0; i < dataToCheck.length - 1; i++) {
+          if (dataToCheck[i] == ESC && dataToCheck[i + 1] == ESC_ESC) {
+            packetDecoded.push(ESC);
+            i++;
+          } else if (dataToCheck[i] == ESC && dataToCheck[i + 1] == ESC_SOP) {
+            packetDecoded.push(SOP);
+            i++;
+          } else if (dataToCheck[i] == ESC && dataToCheck[i + 1] == ESC_EOP) {
+            packetDecoded.push(EOP);
+            i++;
+          } else {
+            packetDecoded.push(dataToCheck[i])
+          }
+        }
+
+        let x = Buffer.from(packetDecoded.slice(5, 9)).readFloatBE(0);
+        let y = Buffer.from(packetDecoded.slice(9, 13)).readFloatBE(0);
+        let z = Buffer.from(packetDecoded.slice(13, 17)).readFloatBE(0);
+        callback(x, y, z);
+      }
+    }
+  });
 }
 
 // ----
 
-let writePacket = (characteristic, buff, waitForNotification = false, timeout = 0, remove=true) => {
-    return new Promise(function (resolve, reject) {
+let writePacket = (characteristic, buff, waitForNotification = false, timeout = 0) => {
+  return new Promise(function (resolve, reject) {
 
-        let dataRead = [];
-        let dataToCheck = [];
-        let eopPosition = -1;
+    let dataRead = [];
+    let dataToCheck = [];
+    let eopPosition = -1;
 
-        let checkIsAValidRequest = (dataRead) => {
-            if (dataRead[5] != 0x00) {
-                if (remove)
-                    characteristic.removeListener('data', listenerForRead);
-                reject(dataRead[5]);
-            }
-        }
+    let checkIsAValidRequest = (dataRead) => {
+      if (dataRead[5] != 0x00) {
+        characteristic.removeListener('data', listenerForRead);
+        reject(dataRead[5]);
+      }
+    }
 
-        let finish = () => {
-            dataRead = [];
-            setTimeout(() => {
-                if(remove)
-                    characteristic.removeListener('data', listenerForRead);
-                resolve(true);
-            }, timeout);
-        }
+    let finish = () => {
+      dataRead = [];
+      setTimeout(() => {
+        characteristic.removeListener('data', listenerForRead);
+        resolve(true);
+      }, timeout);
+    }
 
-        let listenerForRead = (data, isNotification) => {
-            dataRead.push(...data);
-            for (let i = 0 ; i < dataRead.length; i++) {
-                if (dataRead[i] == 0x01) {
-                    console.log('FOUND');
-                }
-            }
+    let isResponseForMe = (data) => {
+      let valid = false;
+      valid |= data.slice(0, 2).every((v) => [0x8D, 0x09].indexOf(v) >= 0);
+      valid |= data.slice(0, 2).every((v) => [0x8D, 0x08].indexOf(v) >= 0);
+      valid |= data.slice(0, 3).every((v) => [0x8D, 0x00, 0x17].indexOf(v) >= 0);
+      return valid;
+    }
 
-            eopPosition = dataRead.indexOf(EOP);
-            dataToCheck = dataRead.slice(0);
-            if (eopPosition !== dataRead.length - 1) {
-                dataRead = dataRead.slice(eopPosition + 1);
-                console.log(dataToCheck)
+    let listenerForRead = (data) => {
+      dataRead.push(...data);
+      eopPosition = dataRead.indexOf(EOP);
+      dataToCheck = dataRead.slice(0);
+      if (eopPosition !== dataRead.length - 1) {
+        dataRead = dataRead.slice(eopPosition + 1);
+      } else {
+        dataRead = [];
+      }
+      if (eopPosition !== -1) {
+        // Check Package is for me
+        if (isResponseForMe(dataToCheck)) {
+          if (waitForNotification) {
+            if (dataToCheck[1] % 2 == 0) {
+              finish();
             } else {
-                dataRead = [];
+              checkIsAValidRequest(dataToCheck);
             }
-            if (eopPosition !== -1) {
-                // Check Package and Wait
-                if (waitForNotification) {
-                    if (dataToCheck[1] % 2 == 0) {
-
-                        finish();
-                    } else {
-
-                        checkIsAValidRequest(dataToCheck);
-                    }
-                } else {
-
-                    checkIsAValidRequest(dataToCheck);
-                    finish();
-                }
-            }
-        };
-        characteristic.on('data', listenerForRead);
-        characteristic.write(Buffer.from(buff));
-    });
+          } else {
+            checkIsAValidRequest(dataToCheck);
+            finish();
+          }
+        }
+      }
+    };
+    characteristic.on('data', listenerForRead);
+    characteristic.write(Buffer.from(buff));
+  });
 }
 
 // ----
 
 let convertFloatDegreeToHex = (degree) => {
-    var view = new DataView(new ArrayBuffer(4));
-    view.setFloat32(0, degree);
-    return Array
-        .apply(null, {
-            length: 4
-        })
-        .map((_, i) => view.getUint8(i))
+  var view = new DataView(new ArrayBuffer(4));
+  view.setFloat32(0, degree);
+  return Array
+    .apply(null, {
+      length: 4
+    })
+    .map((_, i) => view.getUint8(i))
 }
-
 
 // ----
 
 let convertIntDegreeToHex = (degree) => {
-    var view = new DataView(new ArrayBuffer(4));
-    view.setUint16(0, degree)
-    return Array
-        .apply(null, {
-            length: 2
-        })
-        .map((_, i) => view.getUint8(i))
+  var view = new DataView(new ArrayBuffer(4));
+  view.setUint16(0, degree)
+  return Array
+    .apply(null, {
+      length: 2
+    })
+    .map((_, i) => view.getUint8(i))
 }
 
-console.log(convertIntDegreeToHex(359));
+// ---- Move
 
+let move = async (characteristic, degree, milliseconds, speed = 0xFF, direction = 0x00) => {
+
+  let finish = false;
+
+  setTimeout(() => {
+    finish = true;
+  }, milliseconds);
+  while (!finish) {
+    await writePacket(
+      characteristic,
+      buildPacket(MSG_MOVE, [speed, ...convertIntDegreeToHex(degree), direction])
+    );
+    console.log('WRITE')
+  }
+  await writePacket(
+    characteristic,
+    buildPacket(MSG_MOVE, [0x00, ...convertIntDegreeToHex(degree), direction])
+  );
+  console.log('ZERO');
+}
 
 // ---- MAIN FUNCTION
 
@@ -219,114 +273,126 @@ let droidAddress = 'd7:1b:52:17:7b:d6';
 
 
 connectTheDroid(droidAddress).then(characteristic => {
-    characteristic.subscribe(async (error) => {
-        if (error) {
-            console.error('Error subscribing to char.');
-        } else {
-            console.log("Wait for init!");
-            await writePacket(characteristic, buildPacket(MSG_INIT), true, 5000);
+  characteristic.subscribe(async (error) => {
+    if (error) {
+      console.error('Error subscribing to char.');
+    } else {
+      console.log('Wait for init!');
+      await writePacket(characteristic, buildPacket(MSG_INIT), true, 5000);
 
-            console.log('Rotate the droid!');
-            for (let degrees = -160; degrees <= 180; degrees += 5) {
-                await writePacket(
-                    characteristic,
-                    buildPacket(MSG_ROTATE, convertFloatDegreeToHex(degrees)),
-                    false,
-                );
-            }
+      console.log('Enable accelerometer inspection');
+      enableAccelerometerInspection(characteristic, (x, y, z) => {
+        // console.log('----------------------')
+        // console.log("X:" + x)
+        // console.log("Y:" + y)
+        // console.log("Z:" + z)
+      });
 
-            console.log('Show me what you can do!');
-            await writePacket(
-                characteristic,
-                buildPacket(MSG_ANIMATION, [0x00, 7]),
-                true
-            );
+      console.log('Tripod transformation');
+      await writePacket(
+        characteristic,
+        buildPacket(MSG_CARRIAGE, [0x01]),
+        false,
+        2000
+      );
 
-            console.log('Wow! Anything else?');
-            await writePacket(
-                characteristic,
-                buildPacket(MSG_ANIMATION, [0x00, 13]),
-                true
-            );
+      console.log('Make a square 🔳');
+      for (let i = 0; i < 4; i++) {
+        //await move(characteristic, i * 90, 1000, 0xFF / 2);
+        await writePacket(
+          characteristic,
+          buildPacket(MSG_MOVE, [0xFF, ...convertIntDegreeToHex(i * 90), 0x00])
+        );
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        console.log('DONE')
+      }
 
-            console.log('Tripod transformation');
-            await writePacket(
-                characteristic,
-                buildPacket(MSG_CARRIAGE, [0x01]),
-                false,
-                2000
-            );
+      // console.log('Bipod transformation');
+      // await writePacket(
+      //   characteristic,
+      //   buildPacket(MSG_CARRIAGE, [0x02]),
+      //   false,
+      //   2000
+      // );
 
-            console.log('Bipod transformation');
-            await writePacket(
-                characteristic,
-                buildPacket(MSG_CARRIAGE, [0x01]),
-                false,
-                2000
-            );
+      console.log("Awesome! Turn off the droid now!");
+      await writePacket(
+        characteristic,
+        buildPacket(MSG_OFF),
+        true
+      );
+      console.log("Finish!");
+      process.exit();
 
-            //MSG MOVE: [Speed, Head Head (max 0x0167 = 359°), Direction]
-            console.log('Aim to 270°');
-            await writePacket(
-                characteristic,
-                buildPacket(MSG_MOVE, [0x00, ...convertIntDegreeToHex(0), 0x04]),
-                //0x71, 0x01, 0x61, 0x00
-                false, 1000
-            );
+      // console.log('Rotate the droid!');
+      // for (let degrees = -160; degrees <= 180; degrees += 5) {
+      //   await writePacket(
+      //     characteristic,
+      //     buildPacket(MSG_ROTATE, convertFloatDegreeToHex(degrees)),
+      //     false,
+      //   );
+      // }
 
-            console.log('Move forward');
-            await writePacket(
-                characteristic,
-                buildPacket(MSG_MOVE, [0xFF, ...convertIntDegreeToHex(0), 0x00]),
-                //0x71, 0x01, 0x61, 0x00
-                false, 1000
-            );
+      // console.log('Show me what you can do!');
+      // await writePacket(
+      //   characteristic,
+      //   buildPacket(MSG_ANIMATION, [0x00, 7]),
+      //   true
+      // );
+
+      // console.log('Wow! Anything else?');
+      // await writePacket(
+      //   characteristic,
+      //   buildPacket(MSG_ANIMATION, [0x00, 13]),
+      //   true
+      // );
+
+      // console.log('Tripod transformation');
+      // await writePacket(
+      //   characteristic,
+      //   buildPacket(MSG_CARRIAGE, [0x01]),
+      //   false,
+      //   2000
+      // );
+
+      // console.log('Bipod transformation');
+      // await writePacket(
+      //   characteristic,
+      //   buildPacket(MSG_CARRIAGE, [0x02]),
+      //   false,
+      //   2000
+      // );
+
+      // console.log('Tripod transformation');
+      // await writePacket(
+      //   characteristic,
+      //   buildPacket(MSG_CARRIAGE, [0x01]),
+      //   false,
+      //   2000
+      // );
+
+      // //MSG MOVE: [Speed, Head Head (max 0x0167 = 359°), Direction]
+      // console.log('Make a square 🔳');
+
+      // for (let i = 0; i < 4; i++) {
+      //   await writePacket(
+      //     characteristic,
+      //     buildPacket(MSG_MOVE, [0xFF, ...convertIntDegreeToHex(i * 90), 0x00]),
+      //     false, 1000
+      //   );
+      // }
+
+      // console.log("Awesome! Turn off the droid now!");
+      // await writePacket(
+      //   characteristic,
+      //   buildPacket(MSG_OFF),
+      //   true
+      // );
+      // console.log("Finish!");
+      // process.exit();
 
 
-            console.log('Move forward');
-            await writePacket(
-                characteristic,
-                buildPacket(MSG_MOVE, [0xFF, ...convertIntDegreeToHex(0), 0x00]),
-                //0x71, 0x01, 0x61, 0x00
-                false, 1000
-            );
 
-            console.log('NOT');
-
-            // await writePacket(
-            //     characteristic,
-            //     buildPacket(MSG_NOT, [0x00, 0x96, 0x00, 0x00, 0x07, 0xe0, 0x78]),
-            //     //0x71, 0x01, 0x61, 0x00
-            //     false,
-            //     0,
-            //     false
-            // );
-
-            // for (var i = 0 ; i < 50 ; i++) {
-            //     await writePacket(
-            //         characteristic,
-            //         buildPacket(MSG_NOT, []),
-            //         //0x71, 0x01, 0x61, 0x00
-            //         false
-            //     );
-            // }
-
-            // console.log('Move forward');
-            // await writePacket(
-            //     characteristic,
-            //     buildPacket(MSG_MOVE, [0xFF, 0x01, 0x0E, 0x01]),
-            //     //0x71, 0x01, 0x61, 0x00
-            //     false
-            // );
-
-
-            console.log("Awesome! Turn off the droid now!");
-            await writePacket(
-                characteristic,
-                buildPacket(MSG_OFF),
-                true
-            );
-            console.log("Finish!");
-        }
-    });
+    }
+  });
 });
