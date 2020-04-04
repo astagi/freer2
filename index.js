@@ -26,6 +26,10 @@ const ESC_EOP = 0x50;
 
 const MSG_ACCELEROMETER = [0x0A, 0x18, 0x00];
 
+const CONVERSIONS = {
+  INTEGER: 'i',
+  FLOAT: 'f',
+};
 
 let seq = 0;
 
@@ -78,7 +82,6 @@ let connectTheDroid = (address) => {
   return new Promise((resolve, reject) => {
     noble.on('discover', (peripheral) => {
       if (peripheral.address === address) {
-        //console.log(peripheral)
         noble.stopScanning();
         peripheral.connect((e) => {
           peripheral.discoverServices([CONNECT_SERVICE], (error, services) => {
@@ -222,49 +225,14 @@ let writePacket = (characteristic, buff, waitForNotification = false, timeout = 
 
 // ----
 
-let convertFloatDegreeToHex = (degree) => {
+let convertDegreeToHex = (degree, format = CONVERSIONS.INTEGER) => {
   var view = new DataView(new ArrayBuffer(4));
-  view.setFloat32(0, degree);
+  format === CONVERSIONS.FLOAT ? view.setFloat32(0, degree) : view.setUint16(0, degree)
   return Array
     .apply(null, {
-      length: 4
+      length: format === CONVERSIONS.FLOAT ? 4 : 2
     })
     .map((_, i) => view.getUint8(i))
-}
-
-// ----
-
-let convertIntDegreeToHex = (degree) => {
-  var view = new DataView(new ArrayBuffer(4));
-  view.setUint16(0, degree)
-  return Array
-    .apply(null, {
-      length: 2
-    })
-    .map((_, i) => view.getUint8(i))
-}
-
-// ---- Move
-
-let move = async (characteristic, degree, milliseconds, speed = 0xFF, direction = 0x00) => {
-
-  let finish = false;
-
-  setTimeout(() => {
-    finish = true;
-  }, milliseconds);
-  while (!finish) {
-    await writePacket(
-      characteristic,
-      buildPacket(MSG_MOVE, [speed, ...convertIntDegreeToHex(degree), direction])
-    );
-    console.log('WRITE')
-  }
-  await writePacket(
-    characteristic,
-    buildPacket(MSG_MOVE, [0x00, ...convertIntDegreeToHex(degree), direction])
-  );
-  console.log('ZERO');
 }
 
 // ---- MAIN FUNCTION
@@ -282,10 +250,10 @@ connectTheDroid(droidAddress).then(characteristic => {
 
       console.log('Enable accelerometer inspection');
       enableAccelerometerInspection(characteristic, (x, y, z) => {
-        // console.log('----------------------')
-        // console.log("X:" + x)
-        // console.log("Y:" + y)
-        // console.log("Z:" + z)
+        console.log('----------------------')
+        console.log("X:" + x);
+        console.log("Y:" + y);
+        console.log("Z:" + z);
       });
 
       console.log('Tripod transformation');
@@ -298,22 +266,49 @@ connectTheDroid(droidAddress).then(characteristic => {
 
       console.log('Make a square 🔳');
       for (let i = 0; i < 4; i++) {
-        //await move(characteristic, i * 90, 1000, 0xFF / 2);
         await writePacket(
           characteristic,
-          buildPacket(MSG_MOVE, [0xFF, ...convertIntDegreeToHex(i * 90), 0x00])
+          buildPacket(MSG_MOVE, [0xFF, ...convertDegreeToHex(i * 90), 0x00])
         );
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 200));
+        await writePacket(
+          characteristic,
+          buildPacket(MSG_MOVE, [0x00, ...convertDegreeToHex(i * 90), 0x00])
+        );
+        await new Promise(resolve => setTimeout(resolve, 200));
         console.log('DONE')
       }
 
-      // console.log('Bipod transformation');
-      // await writePacket(
-      //   characteristic,
-      //   buildPacket(MSG_CARRIAGE, [0x02]),
-      //   false,
-      //   2000
-      // );
+      console.log('Bipod transformation');
+      await writePacket(
+        characteristic,
+        buildPacket(MSG_CARRIAGE, [0x02]),
+        false,
+        2000
+      );
+
+      console.log('Rotate the droid top!');
+      for (let degrees = -160; degrees <= 180; degrees += 5) {
+        await writePacket(
+          characteristic,
+          buildPacket(MSG_ROTATE, convertDegreeToHex(degrees, CONVERSIONS.FLOAT)),
+          false,
+        );
+      }
+
+      console.log('Show me what you can do!');
+      await writePacket(
+        characteristic,
+        buildPacket(MSG_ANIMATION, [0x00, 7]),
+        true
+      );
+
+      console.log('Wow! Anything else?');
+      await writePacket(
+        characteristic,
+        buildPacket(MSG_ANIMATION, [0x00, 13]),
+        true
+      );
 
       console.log("Awesome! Turn off the droid now!");
       await writePacket(
@@ -323,75 +318,6 @@ connectTheDroid(droidAddress).then(characteristic => {
       );
       console.log("Finish!");
       process.exit();
-
-      // console.log('Rotate the droid!');
-      // for (let degrees = -160; degrees <= 180; degrees += 5) {
-      //   await writePacket(
-      //     characteristic,
-      //     buildPacket(MSG_ROTATE, convertFloatDegreeToHex(degrees)),
-      //     false,
-      //   );
-      // }
-
-      // console.log('Show me what you can do!');
-      // await writePacket(
-      //   characteristic,
-      //   buildPacket(MSG_ANIMATION, [0x00, 7]),
-      //   true
-      // );
-
-      // console.log('Wow! Anything else?');
-      // await writePacket(
-      //   characteristic,
-      //   buildPacket(MSG_ANIMATION, [0x00, 13]),
-      //   true
-      // );
-
-      // console.log('Tripod transformation');
-      // await writePacket(
-      //   characteristic,
-      //   buildPacket(MSG_CARRIAGE, [0x01]),
-      //   false,
-      //   2000
-      // );
-
-      // console.log('Bipod transformation');
-      // await writePacket(
-      //   characteristic,
-      //   buildPacket(MSG_CARRIAGE, [0x02]),
-      //   false,
-      //   2000
-      // );
-
-      // console.log('Tripod transformation');
-      // await writePacket(
-      //   characteristic,
-      //   buildPacket(MSG_CARRIAGE, [0x01]),
-      //   false,
-      //   2000
-      // );
-
-      // //MSG MOVE: [Speed, Head Head (max 0x0167 = 359°), Direction]
-      // console.log('Make a square 🔳');
-
-      // for (let i = 0; i < 4; i++) {
-      //   await writePacket(
-      //     characteristic,
-      //     buildPacket(MSG_MOVE, [0xFF, ...convertIntDegreeToHex(i * 90), 0x00]),
-      //     false, 1000
-      //   );
-      // }
-
-      // console.log("Awesome! Turn off the droid now!");
-      // await writePacket(
-      //   characteristic,
-      //   buildPacket(MSG_OFF),
-      //   true
-      // );
-      // console.log("Finish!");
-      // process.exit();
-
-
 
     }
   });
