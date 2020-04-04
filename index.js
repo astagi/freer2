@@ -185,7 +185,7 @@ let writePacket = (characteristic, buff, waitForNotification = false, timeout = 
       }, timeout);
     }
 
-    let isResponseForMe = (data) => {
+    let isActionResponse = (data) => {
       let valid = false;
       valid |= data.slice(0, 2).every((v) => [0x8D, 0x09].indexOf(v) >= 0);
       valid |= data.slice(0, 2).every((v) => [0x8D, 0x08].indexOf(v) >= 0);
@@ -204,7 +204,7 @@ let writePacket = (characteristic, buff, waitForNotification = false, timeout = 
       }
       if (eopPosition !== -1) {
         // Check Package is for me
-        if (isResponseForMe(dataToCheck)) {
+        if (isActionResponse(dataToCheck)) {
           if (waitForNotification) {
             if (dataToCheck[1] % 2 == 0) {
               finish();
